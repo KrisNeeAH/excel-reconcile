@@ -204,6 +204,20 @@ class ServerTests(unittest.TestCase):
             self.post('/inspect',{},origin='https://example.com')
         self.assertEqual(e.exception.code,400)
 
+    def test_health_and_deployment_origin(self):
+        with urllib.request.urlopen(self.url+'/health') as r:
+            self.assertEqual(json.load(r), {'status':'ok'})
+        previous = app.Handler.allowed_origins
+        app.Handler.allowed_origins = {'https://reconcile.internal'}
+        try:
+            a = source([['A','S',1]])
+            with self.post('/compare', {'left':a,'right':a}, origin='https://reconcile.internal') as r:
+                self.assertEqual(json.load(r)['matched'],1)
+            with self.assertRaises(urllib.error.HTTPError):
+                self.post('/inspect', {}, origin=self.url)
+        finally:
+            app.Handler.allowed_origins = previous
+
     def test_sample_traversal_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as e:
             urllib.request.urlopen(self.url+'/samples/../requirements.txt')
