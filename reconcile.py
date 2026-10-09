@@ -64,26 +64,48 @@ def header_number(config):
         raise ValueError('表头行须在1到100之间')
     return n
 
-def inspect(encoded, name='file.xlsx', header=1):
+def inspect(encoded, name='file.xlsx', header=1, with_preview=False):
     config = {'data': encoded, 'header': header}
     n = header_number(config)
+    result, previews = {}, {}
+    def capture(title, headers, source):
+        result[title] = [str(v).strip() if v is not None else '' for v in headers]
+        samples = []
+        for rowno, cells, formulas in source:
+            if len(samples) >= 5:
+                break
+            values = list(cells)
+            valid = []
+            for i, value in enumerate(values):
+                try:
+                    if i in formulas:
+                        raise ValueError('公式')
+                    amount(value)
+                    valid.append(True)
+                except (ValueError, TypeError):
+                    valid.append(False)
+            samples.append({'row': rowno, 'values': [str(v) if v is not None else '' for v in values],
+                            'amountValid': valid, 'formulas': list(formulas)})
+        previews[title] = samples
     if name.lower().endswith('.csv'):
         rows = csv_rows(config)
         headers = next((row for i, row in enumerate(rows, 1) if i == n), [])
         if not headers:
             raise ValueError('指定表头行为空')
-        return {'CSV': [str(v).strip() for v in headers]}
-    if not name.lower().endswith('.xlsx'):
+        capture('CSV', headers, ((i, row, set()) for i, row in enumerate(rows, n+1)) if with_preview else [])
+    elif name.lower().endswith('.xlsx'):
+        wb = book(encoded)
+        try:
+            for ws in wb:
+                headers = next(ws.iter_rows(min_row=n, max_row=n, values_only=True), ())
+                source = ((i, tuple(c.value for c in row), {j for j,c in enumerate(row) if c.data_type=='f'})
+                          for i,row in enumerate(ws.iter_rows(min_row=n+1, max_row=n+5),n+1))
+                capture(ws.title, headers, source if with_preview else [])
+        finally:
+            wb.close()
+    else:
         raise ValueError('只支持.xlsx或.csv文件')
-    wb = book(encoded)
-    result = {}
-    try:
-        for ws in wb:
-            headers = next(ws.iter_rows(min_row=n, max_row=n, values_only=True), ())
-            result[ws.title] = [str(v).strip() if v is not None else '' for v in headers]
-    finally:
-        wb.close()
-    return result
+    return {'sheets':result, 'previews':previews} if with_preview else result
 
 def amount(value):
     if value is None or str(value).strip() == '':
@@ -311,7 +333,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('请求大小超出限制')
             payload = json.loads(self.rfile.read(size))
             if self.path == '/inspect':
-                result = {'sheets': inspect(payload['data'], payload.get('name','file.xlsx'), payload.get('header',1))}
+                result = inspect(payload['data'], payload.get('name','file.xlsx'), payload.get('header',1), with_preview=True)
             elif self.path == '/compare':
                 raw, rows, issues = reconcile(payload)
                 result = {'file': base64.b64encode(raw).decode(), 'matched': sum(r[1]=='一致' for r in rows),
