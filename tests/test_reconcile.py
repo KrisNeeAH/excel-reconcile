@@ -34,6 +34,25 @@ def run(a,b,mode='strict',tolerance='0.01'):
     return app.reconcile({'left':source(a),'right':source(b),'mode':mode,'tolerance':tolerance})
 
 class RuleTests(unittest.TestCase):
+    def test_source_preview_rows_and_formula_validation(self):
+        a=source([['001','S','1,200.00'],['002','S','=1+1'],['003','S','bad'],['004','S',None],['005','S',0],['006','S',6]],header=3)
+        out=app.inspect(a['data'],a['name'],3,with_preview=True)
+        rows=out['previews']['数据']
+        self.assertEqual(len(rows),5)
+        self.assertEqual([r['row'] for r in rows],[4,5,6,7,8])
+        self.assertEqual(rows[0]['values'][0],'001')
+        self.assertEqual([r['amountValid'][2] for r in rows],[True,False,False,False,True])
+        self.assertEqual(rows[1]['formulas'],[2])
+
+    def test_csv_source_preview(self):
+        raw='说明\n编号,供应商,金额\n001,甲,12.34\n002,乙,错误\n'.encode('gb18030')
+        out=app.inspect(base64.b64encode(raw).decode(),'sample.csv',2,with_preview=True)
+        self.assertEqual(out['sheets']['CSV'],['编号','供应商','金额'])
+        rows=out['previews']['CSV']
+        self.assertEqual(rows[0]['row'],3)
+        self.assertEqual(rows[0]['values'],['001','甲','12.34'])
+        self.assertFalse(rows[1]['amountValid'][2])
+
     def test_matching(self):
         _,rows,issues=run([['A','S',1]],[['A','S','1.00']])
         self.assertEqual(rows[0][1],'一致');self.assertFalse(issues)
@@ -188,7 +207,7 @@ class ServerTests(unittest.TestCase):
         return urllib.request.urlopen(request)
 
     def test_page_and_samples(self):
-        with urllib.request.urlopen(self.url) as r: self.assertIn('两份 Excel',r.read().decode())
+        with urllib.request.urlopen(self.url) as r: self.assertIn('id="cards"',r.read().decode())
         with urllib.request.urlopen(self.url+'/samples') as r: self.assertEqual(len(json.load(r)),12)
 
     def test_inspect_and_compare_http(self):
