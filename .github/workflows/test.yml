@@ -31,6 +31,6 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8765/health
           curl -fsS http://127.0.0.1:8765/samples | python -c 'import json,sys; assert len(json.load(sys.stdin)) == 12'
-          curl -fsS http://127.0.0.1:8765/ | python -c 'import sys; assert "两份 Excel" in sys.stdin.read()'
+          curl -fsS http://127.0.0.1:8765/ | python -c 'import sys; assert "id=\"cards\"" in sys.stdin.read()'
       - if: always()
         run: docker compose logs && docker compose down
