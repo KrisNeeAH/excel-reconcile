@@ -238,6 +238,7 @@ def reconcile(payload):
               ('数据异常', [['来源','源行','编号','供应商','原金额','原因']] + li + ri)]
     for name, rows in tables:
         ws = wb.create_sheet(name)
+        ws.sheet_format.defaultRowHeight = 60 if name == '核对摘要' else 45
         ws.freeze_panes = 'A2'
         ws.auto_filter.ref = f'A1:{chr(64+len(rows[0]))}{len(rows)}'
         for i in range(len(rows[0])):

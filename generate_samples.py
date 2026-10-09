@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
+from openpyxl.styles import Font, PatternFill, Alignment
 
 ROOT = Path(__file__).resolve().parent
 SEED = 20261009
@@ -160,7 +160,11 @@ def generate(output=ROOT/'samples'):
         for key,e in sorted(expected.items()):
             details.append([key,e['strict'],e['sum'],*[float(e[k]) if e[k] is not None else None for k in ('a','b','difference')],e['scenario']])
         for ws in answer_book:
+            ws.sheet_format.defaultRowHeight=36
             ws.freeze_panes='A2';ws.auto_filter.ref=ws.dimensions
+            for row in ws:
+                for c in row:
+                    c.alignment=Alignment(vertical='top',wrap_text=True)
             for c in ws[1]:
                 c.font=Font(bold=True,color='FFFFFF');c.fill=PatternFill('solid',fgColor='16324F')
             for i in range(1,ws.max_column+1):
