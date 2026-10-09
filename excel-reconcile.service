@@ -1,0 +1,18 @@
+[Unit]
+Description=Excel reconciliation private service
+After=network.target
+
+[Service]
+Type=simple
+User=reconcile
+WorkingDirectory=/opt/excel-reconcile
+ExecStart=/opt/excel-reconcile/.venv/bin/python /opt/excel-reconcile/reconcile.py --port 8765 --no-browser
+Restart=on-failure
+Environment=PYTHONUTF8=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

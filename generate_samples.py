@@ -181,7 +181,7 @@ def generate(output=ROOT/'samples'):
                       'left':slug+'/A.xlsx','right':slug+'/B.xlsx','answer':slug+'/answer.json',
                       'answerWorkbook':slug+'/标准答案.xlsx'})
     (output/'index.json').write_text(json.dumps(index,ensure_ascii=False,indent=2),encoding='utf-8')
-    print(f'已生成{len(index)}组样本，合计{sum(s["records"] for s in index):,}个业务编号场景')
+    print(f'Generated {len(index)} sample sets; {sum(s["records"] for s in index):,} business scenarios')
     return index
 
 if __name__=='__main__':

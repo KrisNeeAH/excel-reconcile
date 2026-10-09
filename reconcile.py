@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import re
+import sys
 import threading
 import webbrowser
 import zipfile
@@ -263,11 +264,15 @@ def reconcile(payload):
     return buf.getvalue(), results, li+ri
 
 class Handler(BaseHTTPRequestHandler):
+    allowed_origins = set()
     def log_message(self, *args):
         pass
 
     def do_GET(self):
-        if self.path == '/':
+        if self.path == '/health':
+            raw = b'{"status":"ok"}'
+            content_type = 'application/json'
+        elif self.path == '/':
             raw = (ROOT / 'interface.html').read_bytes()
             content_type = 'text/html; charset=utf-8'
         elif self.path == '/samples':
@@ -293,10 +298,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            # 只接受本机页面发起的请求。
+            # 本地默认限制回环来源；部署时使用显式来源白名单。
             origin = self.headers.get('Origin', '')
             expected = 'http://' + self.headers.get('Host', '')
-            if origin != expected or not expected.startswith('http://127.0.0.1:'):
+            allowed = self.allowed_origins
+            if not allowed and expected.startswith('http://127.0.0.1:'):
+                allowed = {expected}
+            if origin not in allowed:
                 raise ValueError('请求来源不允许')
             size = int(self.headers.get('Content-Length', 0))
             if size <= 0 or size > 60 * 1024 * 1024:
@@ -321,8 +329,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 def main():
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(errors='backslashreplace')
     parser = argparse.ArgumentParser(description='本机Excel/CSV两表核对工具')
     parser.add_argument('--port', type=int, default=0, help='端口，默认自动选择空闲端口')
+    parser.add_argument('--host', default='127.0.0.1', help='监听地址，默认仅本机')
+    parser.add_argument('--origin', action='append', default=[], help='允许的页面来源，例如 http://127.0.0.1:8765，可重复')
     parser.add_argument('--no-browser', action='store_true', help='启动时不自动打开浏览器')
     parser.add_argument('--config', type=Path, help='以JSON配置进行批量核对，不启动页面')
     parser.add_argument('--output', type=Path, default=Path('核对结果.xlsx'))
@@ -345,7 +357,10 @@ def main():
         args.output.write_bytes(raw)
         print(f'已导出 {args.output}：一致{sum(r[1]=="一致" for r in rows)}个编号，异常源行{len(issues)}行')
         return
-    server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
+    if args.host != '127.0.0.1' and (not args.origin or not args.port):
+        parser.error('部署模式必须指定固定 --port 与 --origin')
+    Handler.allowed_origins = set(args.origin)
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
     url = f'http://127.0.0.1:{server.server_port}'
     print('工具已启动：' + url, flush=True)
     print('关闭工具：回到此终端按 Control+C。', flush=True)
