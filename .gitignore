@@ -5,3 +5,7 @@ __pycache__/
 results/
 核对结果.xlsx
 samples/
+
+build/
+dist/
+*.spec

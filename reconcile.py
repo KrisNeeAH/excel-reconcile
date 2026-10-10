@@ -23,7 +23,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.cell import WriteOnlyCell
 
 ROOT = Path(__file__).resolve().parent
-VERSION = '1.0.0'
+VERSION = '1.1.0-rc.1'
 MAX_FILE_BYTES = 20 * 1024 * 1024
 MAX_ROWS = 100000
 
@@ -383,7 +383,10 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        if self.path == '/health':
+        if self.path == '/about':
+            raw = json.dumps({'product':'核对台','version':VERSION,'platform':sys.platform,'python':sys.version.split()[0],'mode':'local-single-user'},ensure_ascii=False).encode()
+            content_type = 'application/json'
+        elif self.path == '/health':
             raw = b'{"status":"ok"}'
             content_type = 'application/json'
         elif self.path == '/':
