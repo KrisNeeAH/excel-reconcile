@@ -34,6 +34,29 @@ def run(a,b,mode='strict',tolerance='0.01'):
     return app.reconcile({'left':source(a),'right':source(b),'mode':mode,'tolerance':tolerance})
 
 class RuleTests(unittest.TestCase):
+    def test_source_record_trace_and_limit(self):
+        a=source([['001','甲',10],['002','乙','=1+1'],['003','丙',30]],header=3)
+        out=app.source_records(a,[4,6])
+        self.assertEqual(out['headers'],['编号','供应商','金额'])
+        self.assertEqual(out['rows'],[{'row':4,'values':['001','甲','10']},{'row':6,'values':['003','丙','30']}])
+        with self.assertRaises(ValueError): app.source_records(a,[3])
+        with self.assertRaises(ValueError): app.source_records(a,list(range(4,55)))
+        self.assertEqual(app.source_records(a,[])['rows'],[])
+
+    def test_csv_source_record_trace(self):
+        a={'data':base64.b64encode('说明\n编号,供应商,金额\n001,甲,12\n002,乙,20\n'.encode('gb18030')).decode(),'name':'a.csv','header':2}
+        self.assertEqual(app.source_records(a,[4])['rows'],[{'row':4,'values':['002','乙','20']}])
+
+    def test_filters_count_full_result_beyond_preview(self):
+        rows=[[str(i),'一致','','','S','S',1,1,0] for i in range(250)]
+        rows.append(['last','金额差异；重复编号待确认','2','3','S','S',2,1,1])
+        buckets=app.result_buckets(rows)
+        self.assertEqual(buckets['all']['count'],251)
+        self.assertEqual(len(buckets['all']['rows']),200)
+        self.assertEqual(buckets['amount']['rows'][0][0],'last')
+        self.assertEqual(buckets['duplicate']['count'],1)
+        self.assertEqual(buckets['review']['count'],1)
+
     def test_source_preview_rows_and_formula_validation(self):
         a=source([['001','S','1,200.00'],['002','S','=1+1'],['003','S','bad'],['004','S',None],['005','S',0],['006','S',6]],header=3)
         out=app.inspect(a['data'],a['name'],3,with_preview=True)
@@ -216,7 +239,13 @@ class ServerTests(unittest.TestCase):
             self.assertIn('数据',json.load(r)['sheets'])
         with self.post('/compare',{'left':a,'right':a}) as r:
             out=json.load(r);self.assertEqual(out['matched'],1)
+            self.assertEqual(out['buckets']['all']['count'],1)
             self.assertEqual(load_workbook(io.BytesIO(base64.b64decode(out['file']))).sheetnames[0],'核对摘要')
+
+    def test_source_http(self):
+        a=source([['001','S',12]])
+        with self.post('/source',{'source':a,'rows':[2]}) as r:
+            self.assertEqual(json.load(r)['rows'][0]['values'],['001','S','12'])
 
     def test_foreign_origin_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as e:
