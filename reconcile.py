@@ -107,6 +107,54 @@ def inspect(encoded, name='file.xlsx', header=1, with_preview=False):
         raise ValueError('只支持.xlsx或.csv文件')
     return {'sheets':result, 'previews':previews} if with_preview else result
 
+def source_records(config, requested):
+    n = header_number(config)
+    wanted = {int(v) for v in requested}
+    if len(wanted) > 50 or any(v <= n or v > n + 100000 for v in wanted):
+        raise ValueError('一次最多查看50条有效源行')
+    if not wanted:
+        return {'headers': [], 'rows': []}
+    wb = None
+    try:
+        if config.get('name', '').lower().endswith('.csv'):
+            source = enumerate(csv_rows(config), 1)
+        elif config.get('name', '').lower().endswith('.xlsx'):
+            wb = book(config['data'])
+            ws = wb[config['sheet']]
+            source = enumerate(ws.iter_rows(max_row=max(wanted), values_only=True), 1)
+        else:
+            raise ValueError('只支持.xlsx或.csv文件')
+        headers, rows = [], []
+        for rowno, cells in source:
+            if rowno == n:
+                headers = [str(v) if v is not None else '' for v in cells]
+            if rowno in wanted:
+                rows.append({'row': rowno, 'values': [str(v) if v is not None else '' for v in cells]})
+            if rowno >= max(wanted):
+                break
+        return {'headers': headers, 'rows': rows}
+    finally:
+        if wb:
+            wb.close()
+
+def result_buckets(rows):
+    predicates = {'review': lambda r: r[1] != '一致', 'all': lambda r: True,
+                  'amount': lambda r: '金额差异' in r[1],
+                  'missing': lambda r: '仅A存在' in r[1] or '仅B存在' in r[1],
+                  'duplicate': lambda r: '重复编号' in r[1],
+                  'supplier': lambda r: '供应商' in r[1]}
+    buckets = {}
+    for name, predicate in predicates.items():
+        selected = []
+        count = 0
+        for row in rows:
+            if predicate(row):
+                count += 1
+                if len(selected) < 200:
+                    selected.append([str(v) if v is not None else '' for v in row])
+        buckets[name] = {'count': count, 'rows': selected}
+    return buckets
+
 def amount(value):
     if value is None or str(value).strip() == '':
         raise ValueError('金额为空')
@@ -334,10 +382,12 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(size))
             if self.path == '/inspect':
                 result = inspect(payload['data'], payload.get('name','file.xlsx'), payload.get('header',1), with_preview=True)
+            elif self.path == '/source':
+                result = source_records(payload['source'], payload['rows'])
             elif self.path == '/compare':
                 raw, rows, issues = reconcile(payload)
                 result = {'file': base64.b64encode(raw).decode(), 'matched': sum(r[1]=='一致' for r in rows),
-                          'review': sum(r[1]!='一致' for r in rows), 'issues': len(issues),
+                          'review': sum(r[1]!='一致' for r in rows), 'issues': len(issues), 'buckets': result_buckets(rows),
                           'preview': [[str(v) if v is not None else '' for v in r] for r in rows[:20]]}
             else:
                 raise ValueError('未知操作')
