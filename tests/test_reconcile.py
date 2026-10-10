@@ -34,6 +34,28 @@ def run(a,b,mode='strict',tolerance='0.01'):
     return app.reconcile({'left':source(a),'right':source(b),'mode':mode,'tolerance':tolerance})
 
 class RuleTests(unittest.TestCase):
+    def test_pagination_search_and_missing_key_issues(self):
+        rows=[[str(i),'一致','','','S','S',1,1,0] for i in range(125)]
+        rows.append(['late-key','金额差异','8','9','late-supplier','S',2,1,1])
+        issues=[['A',10,'','S','','编号为空']]
+        token=app.cache_result(rows,issues)
+        out=app.result_page({'token':token,'filter':'all','page':3})
+        self.assertEqual((out['count'],out['pages'],len(out['rows'])),(126,3,26))
+        found=app.result_page({'token':token,'filter':'all','query':'late-supplier'})
+        self.assertEqual(found['rows'][0][0],'late-key')
+        self.assertEqual(app.result_page({'token':token,'filter':'issues','query':'编号为空'})['rows'][0][2],'')
+        self.assertEqual(app.result_page({'token':token,'filter':'all','query':'absent'})['count'],0)
+        with self.assertRaises(ValueError): app.result_page({'token':token,'filter':'bad'})
+        with self.assertRaises(ValueError): app.result_page({'token':token,'page':0})
+
+    def test_result_cache_eviction_and_expiry(self):
+        old=app.cache_result([],[])
+        app.cache_result([],[]);app.cache_result([],[])
+        with self.assertRaises(ValueError): app.result_page({'token':old})
+        token=app.cache_result([],[])
+        with app.RESULT_LOCK: app.RESULT_CACHE[token]=(app.time.monotonic()-1801,[],[])
+        with self.assertRaises(ValueError): app.result_page({'token':token})
+
     def test_source_record_trace_and_limit(self):
         a=source([['001','甲',10],['002','乙','=1+1'],['003','丙',30]],header=3)
         out=app.source_records(a,[4,6])
