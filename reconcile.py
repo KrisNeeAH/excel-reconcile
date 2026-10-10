@@ -7,6 +7,8 @@ import io
 import json
 import re
 import sys
+import secrets
+import time
 import threading
 import webbrowser
 import zipfile
@@ -154,6 +156,48 @@ def result_buckets(rows):
                     selected.append([str(v) if v is not None else '' for v in row])
         buckets[name] = {'count': count, 'rows': selected}
     return buckets
+
+RESULT_CACHE = {}
+RESULT_LOCK = threading.Lock()
+
+def cache_result(rows, issues):
+    token = secrets.token_urlsafe(24)
+    with RESULT_LOCK:
+        now = time.monotonic()
+        for key in list(RESULT_CACHE):
+            if now - RESULT_CACHE[key][0] > 1800:
+                del RESULT_CACHE[key]
+        while len(RESULT_CACHE) >= 2:
+            del RESULT_CACHE[next(iter(RESULT_CACHE))]
+        RESULT_CACHE[token] = (now, rows, issues)
+    return token
+
+def result_page(payload):
+    with RESULT_LOCK:
+        entry = RESULT_CACHE.get(payload.get('token'))
+    if entry is None or time.monotonic() - entry[0] > 1800:
+        raise ValueError('结果已过期，请重新核对；已下载的报告仍可使用')
+    category = payload.get('filter', 'review')
+    predicates = {'all': lambda r: True, 'review': lambda r: r[1] != '一致',
+                  'amount': lambda r: '金额差异' in r[1],
+                  'missing': lambda r: '仅A存在' in r[1] or '仅B存在' in r[1],
+                  'duplicate': lambda r: '重复编号' in r[1],
+                  'supplier': lambda r: '供应商' in r[1]}
+    if category not in predicates and category != 'issues':
+        raise ValueError('未知结果分类')
+    query = str(payload.get('query','')).strip().casefold()
+    if len(query) > 200:
+        raise ValueError('搜索内容过长')
+    page = int(payload.get('page',1))
+    if page < 1:
+        raise ValueError('页码须大于零')
+    rows = entry[2] if category == 'issues' else entry[1]
+    selected = [r for r in rows if (category == 'issues' or predicates[category](r))
+                and (not query or query in ' '.join(str(v) for v in r).casefold())]
+    pages = max(1,(len(selected)+49)//50)
+    page = min(page,pages)
+    return {'count':len(selected),'page':page,'pages':pages,
+            'rows':[[str(v) if v is not None else '' for v in r] for r in selected[(page-1)*50:page*50]]}
 
 def amount(value):
     if value is None or str(value).strip() == '':
@@ -382,12 +426,14 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(size))
             if self.path == '/inspect':
                 result = inspect(payload['data'], payload.get('name','file.xlsx'), payload.get('header',1), with_preview=True)
+            elif self.path == '/results':
+                result = result_page(payload)
             elif self.path == '/source':
                 result = source_records(payload['source'], payload['rows'])
             elif self.path == '/compare':
                 raw, rows, issues = reconcile(payload)
                 result = {'file': base64.b64encode(raw).decode(), 'matched': sum(r[1]=='一致' for r in rows),
-                          'review': sum(r[1]!='一致' for r in rows), 'issues': len(issues), 'buckets': result_buckets(rows),
+                          'review': sum(r[1]!='一致' for r in rows), 'issues': len(issues), 'buckets': result_buckets(rows), 'token': cache_result(rows, issues),
                           'preview': [[str(v) if v is not None else '' for v in r] for r in rows[:20]]}
             else:
                 raise ValueError('未知操作')
