@@ -251,6 +251,11 @@ class ServerTests(unittest.TestCase):
         request=urllib.request.Request(self.url+path,json.dumps(value).encode(),headers)
         return urllib.request.urlopen(request)
 
+    def test_product_version_metadata(self):
+        with urllib.request.urlopen(self.url+'/about') as response:
+            self.assertEqual(response.headers.get_content_type(),'application/json')
+            self.assertEqual(json.load(response)['version'],app.VERSION)
+
     def test_page_and_samples(self):
         with urllib.request.urlopen(self.url) as r: self.assertIn('id="cards"',r.read().decode())
         with urllib.request.urlopen(self.url+'/samples') as r: self.assertEqual(len(json.load(r)),12)
